@@ -8,8 +8,8 @@
 # Pieces, matching Sec 3.1:
 #   (a) nb_irls_beta()    IRLS for beta with theta held fixed
 #   (b) nb_newton_theta() Newton-Raphson for log(theta), beta held fixed
-#   (c) outer loop alternating (a) and (b)                      [step 4]
-#   (d) standard errors                                         [step 4]
+#   (c) nbreg_fit()       outer loop alternating (a) and (b)
+#   (d) standard errors, computed at the end of nbreg_fit()
 
 
 #' IRLS working weights for the NB2 / Poisson log-link GLM
@@ -277,4 +277,133 @@ nb_newton_theta <- function(y, mu, theta_start, weights = rep(1, length(y)),
        H         = d$H,
        iter      = iter,
        converged = converged)
+}
+
+
+#' Fit an NB2 regression from matrices: the outer loop of Sec 3.1(c)-(d)
+#'
+#' Alternates IRLS for \eqn{\beta} (theta fixed) and Newton-Raphson for
+#' \eqn{\log\theta} (beta fixed) until neither the log-likelihood nor the
+#' parameters change, then computes standard errors.
+#'
+#' This is the engine behind [nbreg()] and the count-part M-step of the
+#' ZINB EM algorithm (Sec 3.2), which calls it with prior weights
+#' \eqn{a_i = 1-\tau_i} and warm starts.
+#'
+#' @param X n x p design matrix.
+#' @param y Counts.
+#' @param offset Offset (length n).
+#' @param weights Prior weights \eqn{a_i} (length n).
+#' @param control Output of [nbreg_control()].
+#' @param beta_start,theta_start Optional warm starts. If `NULL`, beta comes
+#'   from a Poisson IRLS fit and theta from a moment estimate.
+#' @param warn If `TRUE`, warn about non-convergence or a huge theta.
+#'   (EM turns this off for its inner fits and checks things itself.)
+#' @return A list with `coefficients`, `vcov`, `theta`, `SE.theta`,
+#'   `loglik`, `mu`, `eta`, `w`, `iter`, `converged`.
+#' @noRd
+nbreg_fit <- function(X, y, offset = rep(0, length(y)),
+                      weights = rep(1, length(y)), control = nbreg_control(),
+                      beta_start = NULL, theta_start = NULL, warn = TRUE) {
+
+  # ---- Starting values (Sec 3.1(c)) -------------------------------------------
+  if (is.null(beta_start)) {
+    # Poisson IRLS fit = the same IRLS with theta = Inf (V(mu) = mu).
+    pois <- nb_irls_beta(X, y, theta = Inf, offset = offset, weights = weights,
+                         tol = control$irls_tol, maxit = control$irls_maxit)
+    beta <- pois$coefficients
+  } else {
+    beta <- beta_start
+  }
+  mu <- exp(drop(X %*% beta) + offset)
+
+  if (is.null(theta_start)) {
+    # Moment estimate. Under NB2, E[(y/mu - 1)^2] = Var(y)/mu^2
+    # = 1/mu + 1/theta, which is >= 1/theta, so 1/theta is roughly the
+    # average of (y/mu - 1)^2. Setting 1/theta equal to that weighted
+    # average gives theta0 = sum(a) / sum(a (y/mu - 1)^2) (the same start
+    # MASS uses). It is always positive.
+    theta <- sum(weights) / sum(weights * (y / mu - 1)^2)
+  } else {
+    theta <- theta_start
+  }
+  ll <- nb_loglik(y, mu, theta, weights)
+
+  if (control$trace) {
+    cat(sprintf("nbreg start: loglik = %.8f, theta = %.6g\n", ll, theta))
+  }
+
+  # ---- Outer loop: alternate (a) and (b) (Sec 3.1(c)) ----------------------------
+  converged <- FALSE
+  for (iter in seq_len(control$maxit)) {
+
+    # (a) IRLS for beta, theta held fixed; warm start at the current beta.
+    irls <- nb_irls_beta(X, y, theta = theta, offset = offset,
+                         weights = weights, beta_start = beta,
+                         tol = control$irls_tol, maxit = control$irls_maxit)
+
+    # (b) Newton-Raphson for log(theta), beta (so mu) held fixed;
+    #     warm start at the current theta.
+    newt <- nb_newton_theta(y, irls$mu, theta_start = theta, weights = weights,
+                            tol = control$theta_tol,
+                            maxit = control$theta_maxit)
+
+    # Size of this outer iteration's move in all parameters.
+    delta_par <- max(abs(irls$coefficients - beta),
+                     abs(log(newt$theta) - log(theta)))
+    delta_ll  <- abs(newt$loglik - ll)
+
+    beta  <- irls$coefficients
+    mu    <- irls$mu
+    theta <- newt$theta
+    ll    <- newt$loglik                # = nb_loglik(y, mu, theta, weights)
+
+    if (control$trace) {
+      cat(sprintf("nbreg iter %3d: loglik = %.8f, theta = %.6g\n",
+                  iter, ll, theta))
+    }
+
+    # Converged when the log-likelihood changes by < tol (Sec 3.1(c)) and,
+    # for the reason explained in nb_irls_beta(), the parameters have also
+    # stopped moving.
+    if (delta_ll < control$tol && delta_par < control$tol) {
+      converged <- TRUE
+      break
+    }
+  }
+
+  # ---- Standard errors (Sec 3.1(d)) ---------------------------------------------
+  eta <- drop(X %*% beta) + offset
+  # Working weights at the final (mu, theta): w_i = a_i theta mu_i/(theta+mu_i).
+  w <- nb_working_weights(mu, theta, weights)
+  # Var(beta-hat) = (X' W-hat X)^{-1}, treating theta as known (as glm.nb).
+  V <- xtwx_inverse(X, w)
+  # SE(theta-hat) = {-H(theta-hat)}^{-1/2}, H from Sec 3.1(b).
+  H <- nb_theta_derivs(y, mu, theta, weights)$H
+  se_theta <- if (H < 0) 1 / sqrt(-H) else NaN
+
+  # ---- Edge-case warnings --------------------------------------------------------
+  if (warn) {
+    if (!converged) {
+      warning("nbreg did not converge in ", control$maxit,
+              " outer iterations; results may be unreliable. ",
+              "Try increasing 'maxit' in nbreg_control().", call. = FALSE)
+    }
+    if (theta > control$theta_warn) {
+      warning("theta-hat = ", format(theta, digits = 3), " is very large: ",
+              "the data show little or no overdispersion (the Poisson ",
+              "limit), so a Poisson model may be adequate.", call. = FALSE)
+    }
+  }
+
+  list(coefficients = beta,
+       vcov         = V,
+       theta        = theta,
+       SE.theta     = se_theta,
+       loglik       = ll,
+       mu           = mu,
+       eta          = eta,
+       w            = w,
+       iter         = iter,
+       converged    = converged)
 }
