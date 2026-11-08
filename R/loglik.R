@@ -52,6 +52,17 @@ nb_loglik <- function(y, mu, theta, weights = rep(1, length(y))) {
 }
 
 
+#' Log of f_NB(0; mu, theta), the NB probability of a zero
+#'
+#' \eqn{f_{NB}(0;\mu,\theta) = \{\theta/(\theta+\mu)\}^\theta} (Sec 2.2), so
+#' \eqn{\log f_{NB}(0) = \theta\log\{\theta/(\theta+\mu)\} = -\theta\log(1+\mu/\theta)},
+#' computed with `log1p()` for accuracy when theta is large.
+#' @noRd
+nb_log_f0 <- function(mu, theta) {
+  -theta * log1p(mu / theta)
+}
+
+
 #' ZINB observed-data log-likelihood
 #'
 #' Implements Sec 2.2:
@@ -60,24 +71,37 @@ nb_loglik <- function(y, mu, theta, weights = rep(1, length(y))) {
 #' This is the quantity EM must never decrease, so it is evaluated at every
 #' EM iteration.
 #'
+#' The zero model enters through its linear predictor
+#' \eqn{\eta^z_i = z_i^\top\gamma = \mathrm{logit}(\pi_i)}, **not** through
+#' \eqn{\pi_i}, so that \eqn{\log\pi_i} and \eqn{\log(1-\pi_i)} can be computed
+#' as `plogis(eta_zero, log.p = TRUE)` and `plogis(-eta_zero, log.p = TRUE)`
+#' without \eqn{\pi_i} ever being rounded to exactly 0 or 1 (which would give
+#' `log(0) = -Inf`).
+#'
 #' @inheritParams nb_logdens
-#' @param pi Structural-zero probabilities \eqn{\pi_i \in (0,1)}.
+#' @param eta_zero Zero-model linear predictors \eqn{z_i^\top\gamma}.
 #' @return Scalar log-likelihood.
 #' @noRd
-zinb_loglik <- function(y, mu, pi, theta) {
+zinb_loglik <- function(y, mu, eta_zero, theta) {
   is_zero <- (y == 0)
 
-  # f_NB(0; mu, theta) = (theta / (theta + mu))^theta  (Sec 2.2), written as
-  # exp(-theta * log1p(mu/theta)) for the same accuracy reason as above.
-  f0 <- exp(-theta * log1p(mu[is_zero] / theta))
+  # log(pi) and log(1 - pi), computed directly from eta (see above).
+  log_pi   <- plogis(eta_zero, log.p = TRUE)
+  log_1mpi <- plogis(-eta_zero, log.p = TRUE)
 
-  # Zero observations: log[ pi + (1 - pi) * f_NB(0) ]
-  ll_zero <- log(pi[is_zero] + (1 - pi[is_zero]) * f0)
+  # ---- Zero observations: log[ pi + (1 - pi) f_NB(0) ] ----------------------
+  # Write the two pieces on the log scale,
+  #   a = log(pi),   b = log(1 - pi) + log f_NB(0),
+  # so the term is log(e^a + e^b). The "log-sum-exp" identity
+  #   log(e^a + e^b) = max(a, b) + log(1 + e^{-|a - b|})
+  # evaluates it without exponentiating a large negative number to 0:
+  # e^{-|a-b|} is between 0 and 1, so nothing underflows that matters.
+  a <- log_pi[is_zero]
+  b <- log_1mpi[is_zero] + nb_log_f0(mu[is_zero], theta)
+  ll_zero <- pmax(a, b) + log1p(exp(-abs(a - b)))
 
-  # Positive observations: log(1 - pi) + log f_NB(y).
-  # log1p(-pi) = log(1 - pi), accurate when pi is close to 0.
-  ll_pos <- log1p(-pi[!is_zero]) +
-    nb_logdens(y[!is_zero], mu[!is_zero], theta)
+  # ---- Positive observations: log(1 - pi) + log f_NB(y) ----------------------
+  ll_pos <- log_1mpi[!is_zero] + nb_logdens(y[!is_zero], mu[!is_zero], theta)
 
   sum(ll_zero) + sum(ll_pos)
 }

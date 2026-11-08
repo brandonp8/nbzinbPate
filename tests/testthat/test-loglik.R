@@ -45,11 +45,29 @@ test_that("zinb_loglik matches the mixture formula of Sec 2.2", {
   f  <- dnbinom(y, size = theta, mu = mu)
   # P(Y=0) = pi + (1-pi) f(0);  P(Y=y) = (1-pi) f(y) for y > 0.
   ref <- sum(log(ifelse(y == 0, pi + (1 - pi) * f, (1 - pi) * f)))
-  expect_equal(zinb_loglik(y, mu, pi, theta), ref, tolerance = 1e-12)
+  # zinb_loglik takes the zero-model linear predictor eta = logit(pi).
+  expect_equal(zinb_loglik(y, mu, qlogis(pi), theta), ref, tolerance = 1e-12)
 })
 
-test_that("zinb_loglik reduces to the NB log-likelihood when pi = 0", {
+test_that("zinb_loglik reduces to the NB log-likelihood when pi -> 0", {
   y  <- c(0, 1, 4, 0, 2)
   mu <- c(1, 2, 3, 0.5, 2)
-  expect_equal(zinb_loglik(y, mu, rep(0, 5), 3), nb_loglik(y, mu, 3))
+  # eta = -800 means pi = 1/(1 + e^800), which is 0 to machine precision.
+  expect_equal(zinb_loglik(y, mu, rep(-800, 5), 3), nb_loglik(y, mu, 3))
+})
+
+test_that("zinb_loglik stays finite and correct at extreme eta", {
+  y  <- c(0, 0, 3, 5)
+  mu <- c(1, 2, 2, 4)
+  theta <- 2
+  # pi rounds to exactly 1 for eta >= 37, so the naive log(1 - pi) is -Inf.
+  # The stable version must instead give log(1 - pi) = -eta (to 1e-16).
+  eta <- c(-800, 50, -800, 40)
+  ll <- zinb_loglik(y, mu, eta, theta)
+  expect_true(is.finite(ll))
+  ref <- log(dnbinom(0, size = theta, mu = 1)) +   # pi ~ 0: NB zero
+    0 +                                            # pi ~ 1: log(pi + ...) ~ 0
+    dnbinom(3, size = theta, mu = 2, log = TRUE) + # pi ~ 0
+    (-40 + dnbinom(5, size = theta, mu = 4, log = TRUE))  # log(1-pi) ~ -40
+  expect_equal(ll, ref, tolerance = 1e-10)
 })

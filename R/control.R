@@ -62,3 +62,42 @@ check_count <- function(x, name) {
     stop("'", name, "' must be a single positive whole number.", call. = FALSE)
   }
 }
+
+
+#' Control settings for [zinbreg()]
+#'
+#' @param tol EM tolerance (Sec 3.2). EM has converged when the
+#'   observed-data log-likelihood changes by less than `tol` **and** no
+#'   parameter (\eqn{\beta}, \eqn{\gamma}, \eqn{\log\theta}) changes by more
+#'   than `par_tol` between EM iterations.
+#' @param par_tol Tolerance on the largest parameter change; see `tol`.
+#' @param maxit Maximum number of EM iterations.
+#' @param mstep_tol,mstep_maxit Tolerance and iteration limit for the
+#'   M-step fits. Each M-step is a *full* fit, warm-started at the current
+#'   values: the weighted NB fit uses [nbreg_control()] with
+#'   `tol = irls_tol = theta_tol = mstep_tol` and these iteration limits,
+#'   and the logistic IRLS uses the same tolerance and limit.
+#' @param theta_warn Warn if \eqn{\hat\theta} exceeds this value.
+#' @param trace Logical; if `TRUE`, print the log-likelihood at every EM
+#'   iteration.
+#' @return A list of class `"zinbreg_control"`.
+#' @examples
+#' zinbreg_control(tol = 1e-10, maxit = 2000)
+#' @export
+zinbreg_control <- function(tol = 1e-8, par_tol = 1e-6, maxit = 1000,
+                            mstep_tol = 1e-10, mstep_maxit = 100,
+                            theta_warn = 1e5, trace = FALSE) {
+  check_positive_number(tol, "tol")
+  check_positive_number(par_tol, "par_tol")
+  check_positive_number(mstep_tol, "mstep_tol")
+  check_positive_number(theta_warn, "theta_warn")
+  check_count(maxit, "maxit")
+  check_count(mstep_maxit, "mstep_maxit")
+  if (!is.logical(trace) || length(trace) != 1L || is.na(trace)) {
+    stop("'trace' must be TRUE or FALSE.", call. = FALSE)
+  }
+  structure(list(tol = tol, par_tol = par_tol, maxit = maxit,
+                 mstep_tol = mstep_tol, mstep_maxit = mstep_maxit,
+                 theta_warn = theta_warn, trace = trace),
+            class = "zinbreg_control")
+}

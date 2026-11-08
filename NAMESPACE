@@ -2,6 +2,8 @@
 
 export(nbreg)
 export(nbreg_control)
+export(zinbreg)
+export(zinbreg_control)
 importFrom(stats,
   .getXlevels,
   model.frame,
@@ -9,5 +11,6 @@ importFrom(stats,
   model.offset,
   model.response,
   plogis,
-  qlogis
+  qlogis,
+  terms
 )

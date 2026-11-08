@@ -9,5 +9,5 @@
 
 #' @keywords internal
 #' @importFrom stats model.frame model.response model.matrix model.offset
-#' @importFrom stats .getXlevels plogis qlogis
+#' @importFrom stats .getXlevels plogis qlogis terms
 "_PACKAGE"
