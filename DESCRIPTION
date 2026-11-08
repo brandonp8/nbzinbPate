@@ -1,11 +1,27 @@
 Package: nbzinbPate
-Title: What the Package Does (One Line, Title Case)
-Version: 0.0.0.9000
-Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
-Description: What the package does (one paragraph).
-License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
-    license
-Config/roxygen2/version: 8.1.1
+Title: Negative Binomial and Zero-Inflated Negative Binomial Regression
+Version: 0.1.0
+Authors@R:
+    person("Brandon", "Pate", , "patebd2@miamioh.edu", role = c("aut", "cre"))
+Description: Fits negative binomial (NB2) regression by iteratively
+    reweighted least squares (IRLS) for the regression coefficients,
+    alternated with Newton-Raphson for the log dispersion parameter, and
+    zero-inflated negative binomial (ZINB) regression by an EM algorithm
+    whose M-steps are weighted IRLS fits. Standard errors for the ZINB
+    model come from an analytic Hessian of the observed-data
+    log-likelihood. No general-purpose optimizer is used.
+License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
+Config/roxygen2/version: 8.1.1
+Imports:
+    stats
+Suggests:
+    AER,
+    MASS,
+    numDeriv,
+    pscl,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+URL: https://github.com/brandonp8/nbzinbPate
+BugReports: https://github.com/brandonp8/nbzinbPate/issues

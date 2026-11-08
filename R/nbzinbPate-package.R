@@ -1,0 +1,10 @@
+# Package-level documentation.
+#
+# The special string "_PACKAGE" tells roxygen2 to build the help page
+# ?nbzinbPate from the Title and Description fields of DESCRIPTION.
+# Package-wide @importFrom tags (functions we borrow from base package
+# 'stats') are collected here as the package grows, so NAMESPACE has one
+# obvious source.
+
+#' @keywords internal
+"_PACKAGE"

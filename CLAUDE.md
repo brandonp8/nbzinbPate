@@ -1,4 +1,4 @@
- STA 651 final project: NB and ZINB regression R package
+# STA 651 final project: NB and ZINB regression R package
 ## Rules (must follow)
 - Fitting code in R/ must NOT call optim, optimize, nlm, nlminb, uniroot,
 glm, glm.fit, lm, lm.fit, lm.wfit, MASS::glm.nb, MASS::theta.ml,
