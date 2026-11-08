@@ -6,8 +6,8 @@
 # directly with prior weights a_i = 1 - tau_i.
 #
 # Pieces, matching Sec 3.1:
-#   (a) nb_irls_beta()    IRLS for beta with theta held fixed   [this step]
-#   (b) Newton-Raphson for log(theta) with beta held fixed      [step 3]
+#   (a) nb_irls_beta()    IRLS for beta with theta held fixed
+#   (b) nb_newton_theta() Newton-Raphson for log(theta), beta held fixed
 #   (c) outer loop alternating (a) and (b)                      [step 4]
 #   (d) standard errors                                         [step 4]
 
@@ -157,4 +157,124 @@ nb_irls_beta <- function(X, y, theta, offset = rep(0, length(y)),
        loglik       = ll_old,
        iter         = iter,
        converged    = converged)
+}
+
+
+#' Score and second derivative of the NB2 log-likelihood in theta
+#'
+#' With beta (hence mu) held fixed, Sec 3.1(b):
+#' \deqn{U(\theta) = \sum_i a_i\Big[\psi(y_i+\theta) - \psi(\theta) + \log\theta
+#'   + 1 - \log(\theta+\mu_i) - \frac{y_i+\theta}{\theta+\mu_i}\Big],}
+#' \deqn{H(\theta) = \sum_i a_i\Big[\psi'(y_i+\theta) - \psi'(\theta)
+#'   + \frac{1}{\theta} - \frac{2}{\theta+\mu_i}
+#'   + \frac{y_i+\theta}{(\theta+\mu_i)^2}\Big],}
+#' where \eqn{\psi} = `digamma()` and \eqn{\psi'} = `trigamma()`.
+#'
+#' Each formula is coded in an algebraically identical regrouped form that
+#' avoids subtracting nearly equal numbers when theta is large:
+#' * \eqn{\log\theta + 1 - \log(\theta+\mu) - (y+\theta)/(\theta+\mu)
+#'   = -\log(1+\mu/\theta) + (\mu - y)/(\theta+\mu)}, using
+#'   \eqn{1 - (y+\theta)/(\theta+\mu) = (\mu-y)/(\theta+\mu)};
+#' * \eqn{1/\theta - 2/(\theta+\mu) + (y+\theta)/(\theta+\mu)^2
+#'   = \mu/(\theta(\theta+\mu)) + (y-\mu)/(\theta+\mu)^2}, using
+#'   \eqn{1/\theta - 1/(\theta+\mu) = \mu/(\theta(\theta+\mu))} and
+#'   \eqn{-1/(\theta+\mu) + (y+\theta)/(\theta+\mu)^2 = (y-\mu)/(\theta+\mu)^2}.
+#'
+#' @param y Counts.
+#' @param mu Fitted means (fixed).
+#' @param theta Current dispersion.
+#' @param weights Prior weights \eqn{a_i}.
+#' @return `list(U = , H = )`.
+#' @noRd
+nb_theta_derivs <- function(y, mu, theta, weights) {
+  tm <- theta + mu                                        # theta + mu_i
+
+  # U(theta): psi(y+theta) - psi(theta) + [log theta + 1 - log(theta+mu)
+  #           - (y+theta)/(theta+mu)]   (bracket in regrouped form)
+  U <- sum(weights * (digamma(y + theta) - digamma(theta) -
+                        log1p(mu / theta) + (mu - y) / tm))
+
+  # H(theta): psi'(y+theta) - psi'(theta) + [1/theta - 2/(theta+mu)
+  #           + (y+theta)/(theta+mu)^2]  (bracket in regrouped form)
+  H <- sum(weights * (trigamma(y + theta) - trigamma(theta) +
+                        mu / (theta * tm) + (y - mu) / tm^2))
+
+  list(U = U, H = H)
+}
+
+
+#' Newton-Raphson for log(theta) with beta held fixed (Sec 3.1(b))
+#'
+#' Works on \eqn{\phi = \log\theta}, which keeps \eqn{\theta = e^\phi > 0}
+#' automatically. By the chain rule (\eqn{d\theta/d\phi = \theta}):
+#' \deqn{U_\phi = \theta U(\theta), \qquad
+#'       H_\phi = \frac{d}{d\phi}[\theta U(\theta)] = \theta^2 H(\theta) + \theta U(\theta),}
+#' and each Newton step is \eqn{\phi \leftarrow \phi - U_\phi / H_\phi}.
+#'
+#' Two safeguards keep the iteration on track without turning it into a
+#' general optimizer:
+#' 1. If \eqn{H_\phi \ge 0} the log-likelihood is not locally concave in
+#'    \eqn{\phi} and the Newton step would point the wrong way; then we
+#'    simply move \eqn{\phi} one unit in the uphill direction
+#'    (\eqn{\mathrm{sign}(U_\phi)}), i.e. multiply or divide theta by e.
+#' 2. Step-halving: if a step lowers the log-likelihood, halve it (up to
+#'    30 times), exactly as in nb_irls_beta().
+#'
+#' @inheritParams nb_theta_derivs
+#' @param theta_start Starting value for theta.
+#' @param tol Convergence tolerance on \eqn{|\Delta\phi|}.
+#' @param maxit Maximum number of Newton iterations.
+#' @return A list with `theta`, `loglik`, `U`, `H` (in the theta scale, at
+#'   the final theta; \eqn{-H} is the observed information used for
+#'   \eqn{SE(\hat\theta)} in Sec 3.1(d)), `iter`, `converged`.
+#' @noRd
+nb_newton_theta <- function(y, mu, theta_start, weights = rep(1, length(y)),
+                            tol = 1e-10, maxit = 100) {
+  phi <- log(theta_start)                        # phi = log(theta)
+  ll  <- nb_loglik(y, mu, exp(phi), weights)
+
+  converged <- FALSE
+  for (iter in seq_len(maxit)) {
+    theta <- exp(phi)
+    d     <- nb_theta_derivs(y, mu, theta, weights)
+    U_phi <- theta * d$U                         # U_phi = theta U
+    H_phi <- theta^2 * d$H + theta * d$U         # H_phi = theta^2 H + theta U
+
+    # Newton step phi <- phi - U_phi / H_phi (safeguard 1 if H_phi >= 0)
+    step <- if (H_phi < 0) -U_phi / H_phi else sign(U_phi)
+
+    # Safeguard 2: step-halving if the log-likelihood does not increase.
+    phi_new  <- phi + step
+    ll_new   <- nb_loglik(y, mu, exp(phi_new), weights)
+    halvings <- 0
+    while ((!is.finite(ll_new) || ll_new < ll) && halvings < 30) {
+      step     <- step / 2
+      phi_new  <- phi + step
+      ll_new   <- nb_loglik(y, mu, exp(phi_new), weights)
+      halvings <- halvings + 1
+    }
+    if (!is.finite(ll_new) || ll_new < ll) {
+      # Even a tiny step does not improve: we are at the maximum to
+      # machine precision, so keep the current phi.
+      phi_new <- phi
+      ll_new  <- ll
+    }
+
+    delta <- abs(phi_new - phi)                  # |change in log(theta)|
+    phi   <- phi_new
+    ll    <- ll_new
+    if (delta < tol) {
+      converged <- TRUE
+      break
+    }
+  }
+
+  theta <- exp(phi)
+  d     <- nb_theta_derivs(y, mu, theta, weights)  # U, H at the final theta
+  list(theta     = theta,
+       loglik    = ll,
+       U         = d$U,
+       H         = d$H,
+       iter      = iter,
+       converged = converged)
 }
