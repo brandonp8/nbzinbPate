@@ -44,14 +44,14 @@ zinb_estep <- function(y, mu, eta_zero, theta) {
 #' Fit a ZINB regression from matrices by EM (Sec 3.2)
 #'
 #' Each EM iteration:
-#' 1. **E-step**: \eqn{\tau_i} from [zinb_estep()].
+#' 1. **E-step**: \eqn{\tau_i} from `zinb_estep()`.
 #' 2. **M-step, zero part**: maximize
 #'    \eqn{\sum_i[\tau_i\log\pi_i + (1-\tau_i)\log(1-\pi_i)]} over \eqn{\gamma}
-#'    by fractional logistic IRLS ([logit_irls()]).
+#'    by fractional logistic IRLS (`logit_irls()`).
 #' 3. **M-step, count part**: maximize
 #'    \eqn{\sum_i (1-\tau_i)\log f_{NB}(y_i;\mu_i,\theta)} over
 #'    \eqn{(\beta,\theta)}: exactly the NB fit of Sec 3.1 with prior weights
-#'    \eqn{a_i = 1-\tau_i}, so [nbreg_fit()] is reused.
+#'    \eqn{a_i = 1-\tau_i}, so `nbreg_fit()` is reused.
 #'
 #' Both M-steps are *full* fits (run to convergence), warm-started at the
 #' current values, so each is cheap after the first few EM iterations.

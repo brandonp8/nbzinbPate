@@ -191,8 +191,8 @@ zinbreg <- function(formula, data, offset, control = zinbreg_control()) {
 #' Split a ZINB formula `y ~ a + b | c + d` into its parts (base R only)
 #'
 #' A formula is a call: `y ~ a + b | c + d` is `~`(y, `|`(a + b, c + d)),
-#' because `|` binds more loosely than `+`. So element [[2]] is the
-#' response and element [[3]] the right-hand side; if the right-hand side
+#' because `|` binds more loosely than `+`. So element `[[2]]` is the
+#' response and element `[[3]]` the right-hand side; if the right-hand side
 #' is a call to `|`, its two arguments are the count and zero parts.
 #'
 #' @param formula The user's formula.
