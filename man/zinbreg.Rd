@@ -23,7 +23,14 @@ evaluated in \code{data}.}
 An object of class \code{"zinbreg"}: a list with components
 \describe{
 \item{coefficients}{List with \code{count} (\eqn{\beta}) and \code{zero} (\eqn{\gamma}).}
-\item{theta}{\eqn{\hat\theta}.}
+\item{vcov}{Estimated covariance matrix of
+\eqn{(\hat\beta, \hat\gamma, \log\hat\theta)}: the inverse of the
+observed information, from the analytic Hessian of the
+observed-data log-likelihood. Row/column names are \verb{count_*},
+\verb{zero_*}, and \code{Log(theta)}, as in \code{pscl::zeroinfl()}.}
+\item{theta, SE.theta, SE.logtheta}{\eqn{\hat\theta}, its standard
+error (delta method), and the standard error of \eqn{\log\hat\theta}.}
+\item{score}{Analytic score vector at the estimates (should be ~0).}
 \item{loglik, loglik_path}{Maximized observed-data log-likelihood,
 and its value at every EM iteration (non-decreasing).}
 \item{df}{Number of estimated parameters (\eqn{p + q + 1}).}
@@ -51,6 +58,12 @@ and a weighted NB regression (weights \eqn{1-\tau_i}) for
 \eqn{(\beta,\theta)}, both by IRLS. No general-purpose optimizer is used.
 The parameterization is the same as
 \code{pscl::zeroinfl(..., dist = "negbin")}.
+}
+\details{
+EM does not produce standard errors, so after convergence the observed
+information \eqn{-H} of the observed-data log-likelihood with respect to
+\eqn{(\beta, \gamma, \log\theta)} is computed from analytic second
+derivatives and inverted.
 }
 \examples{
 # Simulated ZINB data: one covariate in each part

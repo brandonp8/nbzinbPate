@@ -19,6 +19,11 @@
 #' The parameterization is the same as
 #' `pscl::zeroinfl(..., dist = "negbin")`.
 #'
+#' EM does not produce standard errors, so after convergence the observed
+#' information \eqn{-H} of the observed-data log-likelihood with respect to
+#' \eqn{(\beta, \gamma, \log\theta)} is computed from analytic second
+#' derivatives and inverted.
+#'
 #' @param formula A two-part formula `y ~ x1 + x2 | z1 + z2`: count-model
 #'   covariates before `|`, zero-model covariates after it. Without `|`,
 #'   the same covariates are used in both parts (as in `pscl::zeroinfl()`).
@@ -30,7 +35,14 @@
 #' @return An object of class `"zinbreg"`: a list with components
 #'   \describe{
 #'     \item{coefficients}{List with `count` (\eqn{\beta}) and `zero` (\eqn{\gamma}).}
-#'     \item{theta}{\eqn{\hat\theta}.}
+#'     \item{vcov}{Estimated covariance matrix of
+#'       \eqn{(\hat\beta, \hat\gamma, \log\hat\theta)}: the inverse of the
+#'       observed information, from the analytic Hessian of the
+#'       observed-data log-likelihood. Row/column names are `count_*`,
+#'       `zero_*`, and `Log(theta)`, as in `pscl::zeroinfl()`.}
+#'     \item{theta, SE.theta, SE.logtheta}{\eqn{\hat\theta}, its standard
+#'       error (delta method), and the standard error of \eqn{\log\hat\theta}.}
+#'     \item{score}{Analytic score vector at the estimates (should be ~0).}
 #'     \item{loglik, loglik_path}{Maximized observed-data log-likelihood,
 #'       and its value at every EM iteration (non-decreasing).}
 #'     \item{df}{Number of estimated parameters (\eqn{p + q + 1}).}
@@ -126,10 +138,31 @@ zinbreg <- function(formula, data, offset, control = zinbreg_control()) {
             "zero-inflated Poisson model may be adequate.", call. = FALSE)
   }
 
+  # ---- Standard errors: inverse observed information (Sec 3.2) ---------------
+  # Analytic score and Hessian of the observed-data log-likelihood in
+  # (beta, gamma, log theta), evaluated at the EM estimates.
+  sh <- zinb_score_hessian(X, Z, y, off, fit$coefficients$count,
+                           fit$coefficients$zero, fit$theta)
+  if (fit$boundary) {
+    # At the boundary gamma -> -Inf and the information about gamma is ~0;
+    # SEs would be meaningless (a warning was already issued above).
+    V <- matrix(NA_real_, length(sh$score), length(sh$score),
+                dimnames = dimnames(sh$hessian))
+  } else {
+    V <- zinb_vcov(sh$hessian)
+  }
+  se_logtheta <- sqrt(V["Log(theta)", "Log(theta)"])
+  # Delta method: theta = exp(phi), so SE(theta) = theta * SE(log theta).
+  se_theta <- fit$theta * se_logtheta
+
   # ---- Package as a "zinbreg" object -----------------------------------------
   structure(
     list(coefficients  = fit$coefficients,
+         vcov          = V,
          theta         = fit$theta,
+         SE.logtheta   = se_logtheta,
+         SE.theta      = se_theta,
+         score         = sh$score,
          loglik        = fit$loglik,
          loglik_path   = fit$loglik_path,
          df            = ncol(X) + ncol(Z) + 1L,   # beta, gamma, theta
