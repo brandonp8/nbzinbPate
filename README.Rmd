@@ -1,0 +1,102 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit README.Rmd, then run
+     devtools::build_readme() to regenerate README.md. -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+# nbzinbPate
+
+<!-- badges: start -->
+[![R-CMD-check](https://github.com/brandonp8/nbzinbPate/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/brandonp8/nbzinbPate/actions/workflows/R-CMD-check.yaml)
+<!-- badges: end -->
+
+**nbzinbPate** fits
+
+* **negative binomial (NB2) regression** with `nbreg()`, comparable to
+  `MASS::glm.nb()`, and
+* **zero-inflated negative binomial (ZINB) regression** with `zinbreg()`,
+  comparable to `pscl::zeroinfl(..., dist = "negbin")`,
+
+with all of the estimation implemented from scratch. No general-purpose
+optimizer (`optim()`, `nlm()`, ...) and no GLM fitter (`glm()`, `lm()`, ...)
+is used:
+
+* **NB**: iteratively reweighted least squares (IRLS) for the coefficients
+  with \(\theta\) fixed, alternated with Newton-Raphson for \(\log\theta\)
+  with the coefficients fixed.
+* **ZINB**: an EM algorithm. The E-step computes the posterior probability
+  that each zero is a structural zero. The M-step fits a fractional-response
+  logistic regression for the zero model and a weighted NB regression for the
+  count model, both by IRLS.
+* **Standard errors**: \((X^\top \hat W X)^{-1}\) and
+  \(\{-H(\hat\theta)\}^{-1/2}\) for NB. For ZINB, the inverse observed
+  information, computed from an **analytic** Hessian of the observed-data
+  log-likelihood with respect to \((\beta, \gamma, \log\theta)\).
+
+This package was written for the STA 651 final project (Fall 2026).
+
+## Installation
+
+```r
+# install.packages("devtools")
+devtools::install_github("brandonp8/nbzinbPate")
+```
+
+The package only depends on base R (`stats`). The reference packages `MASS`,
+`pscl`, `AER` and `numDeriv` are needed only to run the tests.
+
+## Example
+
+The `bioChemists` data (from **pscl**) record the number of articles published
+by 915 biochemistry PhD students.
+
+```{r nb}
+library(nbzinbPate)
+data("bioChemists", package = "pscl")
+
+# Negative binomial regression
+m_nb <- nbreg(art ~ fem + mar + kid5 + phd + ment, data = bioChemists)
+summary(m_nb)
+```
+
+```{r zinb}
+# Zero-inflated NB: count model before "|", zero-inflation model after it
+m_zinb <- zinbreg(art ~ fem + mar + kid5 + phd + ment | kid5 + ment,
+                  data = bioChemists)
+summary(m_zinb)
+```
+
+The usual methods work: `coef()`, `vcov()`, `logLik()`, `AIC()`, `BIC()`,
+`fitted()`, `residuals()`, `nobs()`, and `predict()`, including
+`predict(m_zinb, newdata, type = "response" / "count" / "zero")`.
+
+```{r methods}
+AIC(m_nb, m_zinb)
+predict(m_zinb, newdata = data.frame(fem = "Women", mar = "Married",
+                                     kid5 = 0, phd = 3, ment = c(0, 10, 40)),
+        type = "zero")
+```
+
+## Agreement with the reference implementations
+
+On `bioChemists` and `AER::NMES1988`, the estimates match `MASS::glm.nb()` and
+`pscl::zeroinfl()` far more closely than the project tolerances require.
+
+* **NB vs `glm.nb()`**: the coefficients, their standard errors, \(\theta\)
+  and the log-likelihood agree to about 1e-10. SE(\(\theta\)) agrees to about
+  1e-6, because `glm.nb()` evaluates it at the second-to-last Newton step for
+  \(\theta\).
+* **ZINB vs `zeroinfl()`**: the coefficients, standard errors and
+  \(\log\theta\) agree to about 1e-5 or better, and the log-likelihood to
+  about 1e-9.
+
+The package tests (`tests/testthat/`) check this agreement automatically.
+
+## R CMD check
+
+`devtools::check()` returns 0 errors, 0 warnings, and 0 notes.

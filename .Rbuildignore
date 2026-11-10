@@ -3,3 +3,5 @@
 ^project-docs$
 ^CLAUDE\.md$
 ^LICENSE\.md$
+^\.github$
+^README\.Rmd$
