@@ -1,4 +1,25 @@
-# Helpers shared by the nbreg and zinbreg S3 methods.
+# Helpers shared by the fitting code and the S3 methods.
+
+
+#' Did the log-likelihood really decrease (beyond rounding error)?
+#'
+#' Used by the step-halving safeguards in nb_irls_beta(), nb_newton_theta()
+#' and logit_irls(). Near the optimum a correct step changes the
+#' log-likelihood by less than its own floating-point rounding error (for
+#' |l| ~ 1500, doubles resolve changes only down to ~1e-13). Comparing
+#' `ll_new < ll_old` exactly then fails at random -- on some platforms
+#' rounding gives -1e-13 -- and halving a correct step 30 times stalls the
+#' iteration and fakes convergence. So a decrease counts only if it exceeds
+#' a relative 1e-10 (about 1.6e-7 when |l| ~ 1500): far above rounding noise
+#' (~1e-12), far below the decrease caused by a real overshoot from a poor
+#' start (order 1 or more). A non-finite new value always counts.
+#'
+#' @param ll_new,ll_old New and previous log-likelihood (scalars).
+#' @return `TRUE` if the step should be shortened.
+#' @noRd
+ll_decreased <- function(ll_new, ll_old) {
+  !is.finite(ll_new) || ll_new < ll_old - 1e-10 * (1 + abs(ll_old))
+}
 
 
 #' Wald coefficient table: estimate, SE, z value, two-sided p-value

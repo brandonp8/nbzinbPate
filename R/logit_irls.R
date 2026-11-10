@@ -80,15 +80,18 @@ logit_irls <- function(Z, tau, gamma_start = NULL, tol = 1e-10, maxit = 100) {
 
     # ---- Step-halving safeguard (same as nb_irls_beta) -----------------------
     # Q is concave, so a full Newton step rarely overshoots, but it can from
-    # a poor start; if Q went down, halve the step.
+    # a poor start; if Q went down by more than rounding error (see
+    # ll_decreased()), halve the step. If that fails 30 times, stop and
+    # report non-convergence rather than faking convergence.
     if (!is.null(gamma)) {
       halvings <- 0
-      while ((!is.finite(ll_new) || ll_new < ll_old) && halvings < 30) {
+      while (ll_decreased(ll_new, ll_old) && halvings < 30) {
         gamma_new <- (gamma + gamma_new) / 2
         eta_new   <- drop(Z %*% gamma_new)
         ll_new    <- logit_frac_loglik(tau, eta_new)
         halvings  <- halvings + 1
       }
+      if (ll_decreased(ll_new, ll_old)) break
     }
 
     # ---- Convergence: largest change in gamma (no check on the first

@@ -112,18 +112,24 @@ nb_irls_beta <- function(X, y, theta, offset = rep(0, length(y)),
     # ---- Step-halving safeguard ----------------------------------------------
     # Fisher scoring almost always increases the log-likelihood near the
     # optimum, but from a poor start (or with a non-canonical variance) a
-    # full step can overshoot. If the log-likelihood went down (or became
-    # non-finite), move back halfway toward the previous beta, up to 30
-    # times. This only shortens the step along the same direction; it is
-    # not an optimizer.
+    # full step can overshoot. If the log-likelihood went down by more than
+    # rounding error (see ll_decreased()) or became non-finite, move back
+    # halfway toward the previous beta, up to 30 times. This only shortens
+    # the step along the same direction; it is not an optimizer.
     if (!is.null(beta)) {
       halvings <- 0
-      while ((!is.finite(ll_new) || ll_new < ll_old) && halvings < 30) {
+      while (ll_decreased(ll_new, ll_old) && halvings < 30) {
         beta_new <- (beta + beta_new) / 2
         eta_new  <- drop(X %*% beta_new) + offset
         mu_new   <- exp(eta_new)
         ll_new   <- nb_or_pois_loglik(y, mu_new, theta, weights)
         halvings <- halvings + 1
+      }
+      if (ll_decreased(ll_new, ll_old)) {
+        # Even a step shortened 2^30-fold lowers the log-likelihood: the
+        # iteration is stuck. Keep the previous beta and report failure;
+        # never mistake this stall for convergence.
+        break
       }
     }
 
@@ -211,26 +217,36 @@ nb_theta_derivs <- function(y, mu, theta, weights) {
 #'       H_\phi = \frac{d}{d\phi}[\theta U(\theta)] = \theta^2 H(\theta) + \theta U(\theta),}
 #' and each Newton step is \eqn{\phi \leftarrow \phi - U_\phi / H_\phi}.
 #'
-#' Two safeguards keep the iteration on track without turning it into a
+#' Three safeguards keep the iteration on track without turning it into a
 #' general optimizer:
 #' 1. If \eqn{H_\phi \ge 0} the log-likelihood is not locally concave in
 #'    \eqn{\phi} and the Newton step would point the wrong way; then we
 #'    simply move \eqn{\phi} one unit in the uphill direction
 #'    (\eqn{\mathrm{sign}(U_\phi)}), i.e. multiply or divide theta by e.
-#' 2. Step-halving: if a step lowers the log-likelihood, halve it (up to
-#'    30 times), exactly as in nb_irls_beta().
+#' 2. Step-halving: if a step lowers the log-likelihood by more than
+#'    rounding error, halve it (up to 30 times), exactly as in
+#'    nb_irls_beta(). If that still fails, stop and report non-convergence.
+#' 3. Poisson limit: when the data are not overdispersed the likelihood
+#'    keeps rising as \eqn{\theta \to \infty}, so there is no finite
+#'    maximizer. \eqn{\theta} is capped at `theta_max` (default 1e8, far
+#'    beyond any practical overdispersion and beyond the 1e5 level at which
+#'    nbreg() warns); at the cap the NB model is the Poisson model to ~8
+#'    digits. Once theta sits at the cap and the score still points upward,
+#'    the iteration stops there.
 #'
 #' @inheritParams nb_theta_derivs
 #' @param theta_start Starting value for theta.
 #' @param tol Convergence tolerance on \eqn{|\Delta\phi|}.
 #' @param maxit Maximum number of Newton iterations.
+#' @param theta_max Upper bound for theta (the Poisson limit).
 #' @return A list with `theta`, `loglik`, `U`, `H` (in the theta scale, at
 #'   the final theta; \eqn{-H} is the observed information used for
 #'   \eqn{SE(\hat\theta)} in Sec 3.1(d)), `iter`, `converged`.
 #' @noRd
 nb_newton_theta <- function(y, mu, theta_start, weights = rep(1, length(y)),
-                            tol = 1e-10, maxit = 100) {
-  phi <- log(theta_start)                        # phi = log(theta)
+                            tol = 1e-10, maxit = 100, theta_max = 1e8) {
+  phi_max <- log(theta_max)
+  phi <- min(log(theta_start), phi_max)          # phi = log(theta)
   ll  <- nb_loglik(y, mu, exp(phi), weights)
 
   converged <- FALSE
@@ -243,23 +259,26 @@ nb_newton_theta <- function(y, mu, theta_start, weights = rep(1, length(y)),
     # Newton step phi <- phi - U_phi / H_phi (safeguard 1 if H_phi >= 0)
     step <- if (H_phi < 0) -U_phi / H_phi else sign(U_phi)
 
-    # Safeguard 2: step-halving if the log-likelihood does not increase.
+    # Safeguard 3: do not step past the Poisson-limit cap.
+    step <- min(step, phi_max - phi)
+
+    # Safeguard 2: step-halving if the log-likelihood really decreases.
     phi_new  <- phi + step
     ll_new   <- nb_loglik(y, mu, exp(phi_new), weights)
     halvings <- 0
-    while ((!is.finite(ll_new) || ll_new < ll) && halvings < 30) {
+    while (ll_decreased(ll_new, ll) && halvings < 30) {
       step     <- step / 2
       phi_new  <- phi + step
       ll_new   <- nb_loglik(y, mu, exp(phi_new), weights)
       halvings <- halvings + 1
     }
-    if (!is.finite(ll_new) || ll_new < ll) {
-      # Even a tiny step does not improve: we are at the maximum to
-      # machine precision, so keep the current phi.
-      phi_new <- phi
-      ll_new  <- ll
+    if (ll_decreased(ll_new, ll)) {
+      # Stuck: keep the current phi and report failure (never mistake a
+      # stalled step for convergence).
+      break
     }
 
+    # (At the cap with U_phi > 0, step = 0, so delta = 0 and we stop below.)
     delta <- abs(phi_new - phi)                  # |change in log(theta)|
     phi   <- phi_new
     ll    <- ll_new
