@@ -1,0 +1,499 @@
+---
+title: "Negative Binomial and Zero-Inflated Negative Binomial Regression by IRLS and EM"
+subtitle: "STA 651 Final Project: the nbzinbPate package"
+author: "Brandon Pate"
+date: today
+format:
+  html:
+    toc: true
+  pdf:
+    toc: true
+    number-sections: true
+    geometry: margin=1in
+    colorlinks: true
+execute:
+  echo: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+library(nbzinbPate)
+knitr::opts_chunk$set(fig.align = "center", out.width = "85%")
+
+# Saved results of inst/benchmark/benchmark.R and simulation.R. Look in the
+# installed package first, then in the source tree (when rendering from the
+# repository before re-installing).
+result_file <- function(name) {
+  p <- system.file("benchmark", "results", name, package = "nbzinbPate")
+  if (p == "") p <- file.path("..", "..", "inst", "benchmark", "results", name)
+  p
+}
+bm  <- readRDS(result_file("benchmark.rds"))
+sim <- readRDS(result_file("simulation.rds"))
+
+# Formatting helpers
+sci  <- function(x) formatC(x, format = "e", digits = 1)
+# "IRR (lower, upper)" or "OR (lower, upper)" from a 95% Wald interval
+wald <- function(est, se) {
+  sprintf("%.2f (%.2f, %.2f)", exp(est), exp(est - qnorm(0.975) * se),
+          exp(est + qnorm(0.975) * se))
+}
+```
+
+<!--
+  HOW THIS FILE IS ORGANIZED
+  * Every number, table and figure is produced by a code chunk that calls
+    the installed nbzinbPate package (or reads results saved by the scripts
+    in inst/benchmark/, which call the installed package).
+  * Prose is yours to write: each "TODO (Brandon)" callout says what the
+    section should cover. Delete the callouts when done.
+  * Render the PDF:  quarto render vignettes/articles/report.qmd --to pdf
+    then copy/move report.pdf to report/report.pdf (see the README).
+-->
+
+# Introduction
+
+::: {.callout-important}
+## TODO (Brandon): Introduction
+
+What the project asks you to cover (Sec 6.1, item 1):
+
+* count data, and why the Poisson model is often too restrictive;
+* **overdispersion** (variance > mean) and the NB2 model;
+* **excess zeros** and the zero-inflated (two-process) model;
+* the goals of the package: implement NB and ZINB estimation yourself
+  (IRLS, Newton-Raphson, EM; no `optim()`), check it against
+  `MASS::glm.nb()` and `pscl::zeroinfl()`, and apply it to NMES1988.
+:::
+
+# Methods
+
+::: {.callout-important}
+## TODO (Brandon): Methods prose
+
+The equations below are the ones the code implements (Sec 2-3 of the
+project description, plus the Hessian derivation in `R/zinb_hessian.R`).
+Explain them in your own words: the models, the three algorithms, how
+standard errors are computed, and the convergence criteria. Edit or cut
+equations as you see fit.
+:::
+
+## Models
+
+**NB2.** For counts $Y_i$ with covariates $x_i$ and offset $o_i$,
+$$
+P(Y_i = y) = \frac{\Gamma(y+\theta)}{\Gamma(\theta)\, y!}
+  \left(\frac{\theta}{\theta+\mu_i}\right)^{\theta}
+  \left(\frac{\mu_i}{\theta+\mu_i}\right)^{y},
+\qquad \log\mu_i = x_i^\top\beta + o_i,
+$$
+so that $E(Y_i)=\mu_i$ and $\mathrm{Var}(Y_i)=\mu_i+\mu_i^2/\theta$.
+
+**ZINB.** With $\mathrm{logit}\,\pi_i = z_i^\top\gamma$,
+$$
+P(Y_i=0)=\pi_i+(1-\pi_i)f_{NB}(0;\mu_i,\theta),\qquad
+P(Y_i=y)=(1-\pi_i)f_{NB}(y;\mu_i,\theta),\ y\ge 1,
+$$
+$$
+\ell(\beta,\gamma,\theta)=\sum_{y_i=0}\log\!\big[\pi_i+(1-\pi_i)f_{NB}(0;\mu_i,\theta)\big]
++\sum_{y_i>0}\big[\log(1-\pi_i)+\log f_{NB}(y_i;\mu_i,\theta)\big].
+$$
+
+## NB: IRLS for $\beta$ alternated with Newton-Raphson for $\log\theta$
+
+IRLS step, $\theta$ fixed:
+$$
+w_i = a_i\frac{\theta\mu_i}{\theta+\mu_i},\qquad
+z_i = (\eta_i-o_i)+\frac{y_i-\mu_i}{\mu_i},\qquad
+\beta^{(t+1)}=(X^\top WX)^{-1}X^\top Wz .
+$$
+
+Newton step on $\phi=\log\theta$, $\beta$ fixed:
+$$
+U(\theta)=\sum_i a_i\Big[\psi(y_i+\theta)-\psi(\theta)+\log\theta+1-\log(\theta+\mu_i)-\frac{y_i+\theta}{\theta+\mu_i}\Big],
+$$
+$$
+H(\theta)=\sum_i a_i\Big[\psi'(y_i+\theta)-\psi'(\theta)+\frac1\theta-\frac{2}{\theta+\mu_i}+\frac{y_i+\theta}{(\theta+\mu_i)^2}\Big],
+$$
+$$
+U_\phi=\theta U,\qquad H_\phi=\theta^2H+\theta U,\qquad \phi\leftarrow\phi-U_\phi/H_\phi .
+$$
+
+Standard errors: $\widehat{\mathrm{Var}}(\hat\beta)=(X^\top\hat WX)^{-1}$ and
+$\mathrm{SE}(\hat\theta)=\{-H(\hat\theta)\}^{-1/2}$.
+
+## ZINB: EM with IRLS M-steps
+
+E-step:
+$$
+\tau_i=\frac{\pi_i}{\pi_i+(1-\pi_i)f_{NB}(0;\mu_i,\theta)}\ (y_i=0),\qquad \tau_i=0\ (y_i>0).
+$$
+
+M-step, zero part (fractional logistic IRLS):
+$w_i=\pi_i(1-\pi_i)$, $z_i=z_i^\top\gamma+(\tau_i-\pi_i)/\{\pi_i(1-\pi_i)\}$.
+
+M-step, count part: the NB fit above with prior weights $a_i=1-\tau_i$.
+
+## Standard errors for ZINB: analytic Hessian
+
+With $\eta^z_i=z_i^\top\gamma$, $\eta^c_i=x_i^\top\beta+o_i$,
+$\ell^f_i=\log f_{NB}(y_i;\mu_i,\theta)$ and $a,b\in\{\eta^c,\phi\}$,
+$$
+\frac{\partial^2\ell_i}{\partial(\eta^z_i)^2}=\tau_i(1-\tau_i)-\pi_i(1-\pi_i),\quad
+\frac{\partial^2\ell_i}{\partial\eta^z_i\,\partial a}=-\tau_i(1-\tau_i)\frac{\partial\ell^f_i}{\partial a},
+$$
+$$
+\frac{\partial^2\ell_i}{\partial a\,\partial b}=(1-\tau_i)\frac{\partial^2\ell^f_i}{\partial a\,\partial b}
++\tau_i(1-\tau_i)\frac{\partial\ell^f_i}{\partial a}\frac{\partial\ell^f_i}{\partial b},
+$$
+and $\widehat{\mathrm{Var}}(\hat\beta,\hat\gamma,\log\hat\theta)=\{-H\}^{-1}$.
+
+# The R package
+
+::: {.callout-important}
+## TODO (Brandon): Package design
+
+Describe the design (Sec 6.1, item 3): the formula interfaces versus the
+matrix-level engines (`nbreg_fit()` is reused as the ZINB count M-step),
+the main functions, the S3 methods, the control functions, edge-case
+handling (non-convergence, the Poisson limit, the no-zero-inflation
+boundary), the tests, and installation.
+:::
+
+```{r install}
+#| echo: true
+#| eval: false
+# install.packages("devtools")
+devtools::install_github("brandonp8/nbzinbPate")
+```
+
+| Function | Purpose |
+|:---|:---|
+| `nbreg(formula, data, offset, control)` | NB2 regression: IRLS + Newton-Raphson for $\log\theta$ |
+| `zinbreg(formula, data, offset, control)` | ZINB regression by EM; formula `y ~ x | z` |
+| `nbreg_control()`, `zinbreg_control()` | tolerances, iteration limits, `trace` |
+| S3 methods (both classes) | `print`, `summary`, `coef`, `vcov`, `logLik`, `AIC`/`BIC`, `fitted`, `residuals`, `nobs`, `predict` |
+
+```{r usage}
+#| echo: true
+#| eval: false
+library(nbzinbPate)
+data("NMES1988", package = "AER")
+fit <- zinbreg(visits ~ hospital + health + chronic + gender + school +
+                 insurance | hospital + chronic + gender + school + insurance,
+               data = NMES1988)
+summary(fit)
+predict(fit, newdata = NMES1988[1:3, ], type = "zero")
+```
+
+# Benchmarking
+
+::: {.callout-important}
+## TODO (Brandon): Benchmarking prose
+
+Summarize the agreement with `glm.nb()` / `zeroinfl()` on both data sets
+against the Table 4 tolerances, and discuss the timings (why EM needs more
+time than BFGS). Facts from the tables below: every quantity passes;
+note whether our ZINB log-likelihood is higher than `zeroinfl()`'s
+(`r if (bm$NMES1988$ZINB$loglik_higher) "it is, on NMES1988" else "it is not on NMES1988"`).
+Full side-by-side estimates are in the Appendix.
+:::
+
+```{r bench-agreement}
+agree <- do.call(rbind, lapply(c("bioChemists", "NMES1988"), function(ds) {
+  do.call(rbind, lapply(c("NB", "ZINB"), function(m) {
+    a <- bm[[ds]][[m]]$agreement
+    data.frame(Data = ds, Model = m, Quantity = a$quantity,
+               `Max abs. difference` = sci(a$max_abs_diff),
+               Tolerance = sci(a$tolerance),
+               Pass = ifelse(a$pass, "yes", "NO"), check.names = FALSE)
+  }))
+}))
+knitr::kable(agree, booktabs = TRUE, align = "llllll",
+             caption = paste("Maximum absolute difference between nbzinbPate",
+                             "and MASS::glm.nb() (NB) or pscl::zeroinfl() (ZINB),",
+                             "with the Table 4 tolerances."))
+```
+
+```{r bench-time}
+timing <- do.call(rbind, lapply(c("bioChemists", "NMES1988"), function(ds) {
+  do.call(rbind, lapply(c("NB", "ZINB"), function(m) {
+    r <- bm[[ds]][[m]]
+    data.frame(Data = ds, Model = m,
+               `nbzinbPate (s)` = r$time[["ours"]],
+               `Reference (s)` = r$time[["reference"]],
+               Iterations = r$iterations, check.names = FALSE)
+  }))
+}))
+knitr::kable(timing, booktabs = TRUE, digits = 2,
+             caption = paste("Median computation time. Iterations: outer",
+                             "IRLS/Newton iterations (NB) or EM iterations (ZINB)."))
+```
+
+# Simulation study
+
+::: {.callout-important}
+## TODO (Brandon): Simulation prose
+
+Describe the design (below) and discuss the results: bias, mean SE versus
+Monte Carlo SD, and coverage, taking the Monte Carlo error into account
+(a coverage estimate from R = `r sim$design$R` replications has SE about
+`r round(sim$diagnostics$coverage_mcse, 3)`).
+Facts: `r sim$diagnostics$n_converged`/`r sim$design$R` fits converged,
+`r sim$diagnostics$n_boundary` boundary cases,
+`r sim$diagnostics$n_with_warnings` with warnings.
+:::
+
+Design: $R=`r sim$design$R`$ data sets of size $n=`r sim$design$n`$
+(seed `r sim$design$seed`) with
+$\log\mu_i=`r sim$design$beta[1]` + `r sim$design$beta[2]`\,x_{1i} `r sim$design$beta[3]`\,x_{2i}$,
+$x_1\sim N(0,1)$, $x_2\sim\mathrm{Bernoulli}(0.5)$;
+$\mathrm{logit}\,\pi_i=`r sim$design$gamma[1]` + `r sim$design$gamma[2]`\,z_{1i}$, $z_1\sim N(0,1)$;
+and $\theta=`r sim$design$theta`$.
+
+```{r sim-table}
+st <- sim$summary
+names(st) <- c("Parameter", "True", "Mean est.", "Bias", "MC SD",
+               "Mean SE", "SE / MC SD", "Coverage")
+knitr::kable(st, booktabs = TRUE, digits = 3,
+             caption = paste("Simulation results: bias, Monte Carlo SD versus",
+                             "mean estimated SE, and empirical coverage of",
+                             "95% Wald intervals (theta on the log scale)."))
+```
+
+```{r sim-figure}
+#| fig-cap: "Standardized errors (estimate - truth) / SE across the 100 replications. Under correct SEs these are approximately N(0, 1); dashed lines at +/-1.96."
+#| fig-height: 4
+#| fig-width: 7
+truth <- setNames(sim$summary$true, sim$summary$parameter)
+zstd  <- sweep(sim$estimates, 2, truth) / sim$std_errors
+op <- par(mar = c(8, 4, 1, 1))   # wide bottom margin for the rotated labels
+boxplot(zstd, las = 2, cex.axis = 0.75, ylab = "(estimate - truth) / SE",
+        col = "grey85")
+abline(h = 0)
+abline(h = c(-1.96, 1.96), lty = 2)
+par(op)
+```
+
+# Data analysis: NMES1988
+
+```{r nmes-data}
+data("NMES1988", package = "AER")
+d <- NMES1988
+y <- d$visits
+```
+
+## Descriptive summary
+
+```{r nmes-describe}
+desc <- data.frame(
+  n = length(y), Mean = mean(y), Variance = var(y),
+  `Variance / mean` = var(y) / mean(y),
+  `Observed zeros` = sum(y == 0),
+  `Proportion zero` = mean(y == 0),
+  `Poisson P(0) at the mean` = dpois(0, mean(y)),
+  check.names = FALSE)
+knitr::kable(desc, booktabs = TRUE, digits = 3,
+             caption = "Physician office visits in NMES1988.")
+```
+
+::: {.callout-important}
+## TODO (Brandon): Descriptive summary
+
+Interpret the table and the figure below: evidence of overdispersion and of
+more zeros than a Poisson model predicts (Sec 5.2, item 1).
+:::
+
+## Models
+
+```{r nmes-fit}
+#| echo: true
+f_count <- visits ~ hospital + health + chronic + gender + school + insurance
+f_zinb  <- visits ~ hospital + health + chronic + gender + school + insurance |
+  hospital + chronic + gender + school + insurance
+
+m_pois <- glm(f_count, family = poisson, data = d)   # reference Poisson model
+m_nb   <- nbreg(f_count, data = d)                     # our NB
+m_zinb <- zinbreg(f_zinb, data = d)                    # our ZINB
+```
+
+```{r nmes-expected}
+# Expected frequency of each count k under each fitted model:
+# sum over observations of the fitted P(Y_i = k).
+K <- 0:30
+exp_pois <- sapply(K, function(k) sum(dpois(k, fitted(m_pois))))
+exp_nb   <- sapply(K, function(k) sum(dnbinom(k, size = m_nb$theta,
+                                              mu = fitted(m_nb))))
+pi_hat <- predict(m_zinb, type = "zero")
+mu_hat <- predict(m_zinb, type = "count")
+exp_zinb <- sapply(K, function(k) {
+  sum((k == 0) * pi_hat +
+        (1 - pi_hat) * dnbinom(k, size = m_zinb$theta, mu = mu_hat))
+})
+obs <- sapply(K, function(k) sum(y == k))
+```
+
+```{r nmes-freq-figure}
+#| fig-cap: "Observed frequencies of office visits (bars) and frequencies expected under the fitted Poisson, NB and ZINB models, for 0-20 visits."
+#| fig-height: 4
+#| fig-width: 7
+show <- K <= 20
+op <- par(mar = c(4, 4, 1, 1))
+bp <- barplot(obs[show], names.arg = K[show], col = "grey85", border = "grey50",
+              ylim = c(0, max(obs, exp_pois) * 1.05),
+              xlab = "Number of physician office visits", ylab = "Frequency")
+lines(bp, exp_pois[show], type = "b", pch = 19, col = "firebrick")
+lines(bp, exp_nb[show],   type = "b", pch = 17, col = "steelblue")
+lines(bp, exp_zinb[show], type = "b", pch = 15, col = "darkgreen")
+legend("topright", c("Observed", "Poisson", "NB", "ZINB"),
+       pch = c(22, 19, 17, 15), pt.bg = c("grey85", NA, NA, NA),
+       col = c("grey50", "firebrick", "steelblue", "darkgreen"), bty = "n")
+par(op)
+```
+
+## Model comparison
+
+```{r nmes-compare}
+cmp <- data.frame(
+  Model = c("Poisson", "NB", "ZINB"),
+  df = c(attr(logLik(m_pois), "df"), attr(logLik(m_nb), "df"),
+         attr(logLik(m_zinb), "df")),
+  logLik = c(logLik(m_pois), logLik(m_nb), logLik(m_zinb)),
+  AIC = c(AIC(m_pois), AIC(m_nb), AIC(m_zinb)),
+  BIC = c(BIC(m_pois), BIC(m_nb), BIC(m_zinb)),
+  `Expected zeros` = c(exp_pois[1], exp_nb[1], exp_zinb[1]),
+  check.names = FALSE)
+knitr::kable(cmp, booktabs = TRUE, digits = 1,
+             caption = sprintf(paste("Model comparison for NMES1988",
+                                     "(observed zeros = %d)."), obs[1]))
+```
+
+::: {.callout-important}
+## TODO (Brandon): Model comparison
+
+Compare the three models using log-likelihood, AIC, BIC and observed versus
+expected zeros (Sec 5.2, item 2). Facts: NB theta-hat =
+`r round(m_nb$theta, 3)` (SE `r round(m_nb$SE.theta, 3)`); ZINB theta-hat =
+`r round(m_zinb$theta, 3)`; observed zeros `r obs[1]`, expected under NB
+`r round(exp_nb[1], 1)` and under ZINB `r round(exp_zinb[1], 1)`.
+:::
+
+## Interpretation: incidence rate ratios and odds ratios
+
+```{r nmes-irr}
+s_nb <- summary(m_nb)$coefficients
+s_zc <- summary(m_zinb)$coefficients$count
+keep_nb <- rownames(s_nb) != "(Intercept)"
+keep_zc <- !(rownames(s_zc) %in% c("(Intercept)", "Log(theta)"))
+irr <- data.frame(
+  Covariate = rownames(s_nb)[keep_nb],
+  `NB IRR (95% CI)` = wald(s_nb[keep_nb, 1], s_nb[keep_nb, 2]),
+  `ZINB count IRR (95% CI)` = wald(s_zc[keep_zc, 1], s_zc[keep_zc, 2]),
+  check.names = FALSE)
+knitr::kable(irr, booktabs = TRUE, row.names = FALSE, align = "lcc",
+             caption = "Count part: incidence rate ratios with 95% Wald intervals.")
+```
+
+```{r nmes-or}
+s_zz <- summary(m_zinb)$coefficients$zero
+keep_zz <- rownames(s_zz) != "(Intercept)"
+or <- data.frame(
+  Covariate = rownames(s_zz)[keep_zz],
+  `OR (95% CI)` = wald(s_zz[keep_zz, 1], s_zz[keep_zz, 2]),
+  `p-value` = format.pval(s_zz[keep_zz, 4], digits = 2, eps = 1e-4),
+  check.names = FALSE)
+knitr::kable(or, booktabs = TRUE, row.names = FALSE, align = "lcc",
+             caption = paste("ZINB zero part: odds ratios of being a",
+                             "structural zero (never visiting), with 95% Wald",
+                             "intervals."))
+```
+
+::: {.callout-important}
+## TODO (Brandon): Interpretation
+
+Interpret the main effects in plain language (Sec 5.2, item 3): IRRs for
+the count part (NB and ZINB) and ORs for the zero part, with their CIs.
+Then state which model you prefer and why (Sec 5.2, item 4).
+:::
+
+# Discussion
+
+::: {.callout-important}
+## TODO (Brandon): Discussion
+
+Limitations and possible extensions (Sec 6.1, item 7). For example:
+EM's linear convergence and run time; the NB SEs treating theta as known;
+weak identification of the zero part (large SEs, slightly small SEs in the
+simulation); the no-zero-inflation boundary; possible extensions (ZIP,
+hurdle models, other links, EM acceleration).
+:::
+
+# AI-use statement
+
+::: {.callout-important}
+## TODO (Brandon): AI-use statement (in your own words)
+
+Sec 6.1, item 8: how you used Claude Code, what you asked it to do, what
+you verified yourself, and at least one example where you had to correct
+or reject its output. Episodes from the development history (see the git
+log) that you may draw on:
+
+* **IRLS stopping rule (step 2):** the first version stopped on the
+  log-likelihood change and left the score at 0.011 (beta accurate only to
+  ~1e-6); changed to the largest change in beta.
+* **Poisson-limit test (step 4):** the test used `rpois()` data that were
+  overdispersed by chance, so theta-hat = 88 was correct and the expected
+  warning was wrong; replaced with underdispersed data.
+* **No-zero-inflation boundary (step 6):** with an intercept-only zero
+  model, gamma -> -Inf; EM ran 1000 iterations; added boundary detection.
+* **glm.nb SE(theta) explanation:** an initial explanation of the 1e-6
+  difference was imprecise and was corrected after reading the MASS source.
+* **Step-halving rounding bug (CI on macOS):** exact comparison of
+  log-likelihoods in the step-halving safeguard caused false convergence
+  on macOS only; fixed with a rounding-aware comparison and regression
+  tests that inject rounding noise.
+* **README:** an over-strong agreement claim was corrected.
+:::
+
+# References
+
+- Cameron, A. C. and Trivedi, P. K. (2013). *Regression Analysis of Count
+  Data* (2nd ed.). Cambridge University Press.
+- Deb, P. and Trivedi, P. K. (1997). Demand for medical care by the elderly:
+  A finite mixture approach. *Journal of Applied Econometrics*, 12(3), 313-336.
+- Dempster, A. P., Laird, N. M. and Rubin, D. B. (1977). Maximum likelihood
+  from incomplete data via the EM algorithm. *JRSS-B*, 39(1), 1-38.
+- Lambert, D. (1992). Zero-inflated Poisson regression, with an application
+  to defects in manufacturing. *Technometrics*, 34(1), 1-14.
+- Long, J. S. (1997). *Regression Models for Categorical and Limited
+  Dependent Variables*. Sage.
+- Louis, T. A. (1982). Finding the observed information matrix when using
+  the EM algorithm. *JRSS-B*, 44(2), 226-233.
+- McCullagh, P. and Nelder, J. A. (1989). *Generalized Linear Models*
+  (2nd ed.). Chapman & Hall.
+- Venables, W. N. and Ripley, B. D. (2002). *Modern Applied Statistics with
+  S* (4th ed.). Springer.
+- Wickham, H. and Bryan, J. (2023). *R Packages* (2nd ed.). O'Reilly.
+  <https://r-pkgs.org>
+- Zeileis, A., Kleiber, C. and Jackman, S. (2008). Regression models for
+  count data in R. *Journal of Statistical Software*, 27(8), 1-25.
+
+# Appendix: side-by-side benchmark estimates {.appendix}
+
+```{r appendix-tables}
+#| results: asis
+for (ds in c("bioChemists", "NMES1988")) {
+  for (m in c("NB", "ZINB")) {
+    tab <- bm[[ds]][[m]]$table
+    tab$abs_diff <- sci(tab$abs_diff)
+    names(tab) <- c("Quantity", "Parameter", "nbzinbPate", "Reference",
+                    "Abs. difference")
+    ref_name <- if (m == "NB") "MASS::glm.nb()" else "pscl::zeroinfl()"
+    print(knitr::kable(tab, booktabs = TRUE, digits = 6, row.names = FALSE,
+                       caption = sprintf("%s, %s: nbzinbPate vs %s.",
+                                         ds, m, ref_name)))
+    cat("\n\n")
+  }
+}
+```
