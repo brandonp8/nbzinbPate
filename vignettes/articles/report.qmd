@@ -65,7 +65,7 @@ number of doctor visits in a year, of articles a student publishes, of
 defects on a production line. The Poisson regression model is the natural
 starting point, but it forces the variance to equal the mean. Real count data
 are often **overdispersed**, with a variance much larger than the mean, and
-often contain **more zeros** than a Poisson model with the same mean can
+can also contain **more zeros** than a Poisson model with the same mean can
 produce. Ignoring overdispersion gives standard errors that are too small, and
 ignoring excess zeros gives a poor description of who has a zero count and why.
 
@@ -228,7 +228,7 @@ parameters by less than $10^{-8}$; EM stops when $\ell$ changes by less than
 $10^{-8}$ and the parameters by less than $10^{-6}$.
 
 Each IRLS or Newton step is halved if it lowers the log-likelihood by more
-than rounding error. Probabilities are handled on the log scale
+than rounding error which means it passed the maximum. The steps are halved until the maximum is not passed. Probabilities are handled on the log scale
 (`plogis(eta, log.p = TRUE)` and a log-sum-exp form of
 $\log[\pi+(1-\pi)f_{NB}(0)]$), so $\pi_i$ is never rounded to exactly 0 or 1.
 Two boundary cases are detected and reported with a warning: $\hat\theta$
@@ -664,30 +664,7 @@ standard errors give close to nominal coverage. Several limitations remain.
 
 # AI-use statement
 
-::: {.callout-important}
-## TODO (Brandon): AI-use statement (in your own words)
-
-Sec 6.1, item 8: how you used Claude Code, what you asked it to do, what
-you verified yourself, and at least one example where you had to correct
-or reject its output. Episodes from the development history (see the git
-log) that you may draw on:
-
-* **IRLS stopping rule (step 2):** the first version stopped on the
-  log-likelihood change and left the score at 0.011 (beta accurate only to
-  ~1e-6); changed to the largest change in beta.
-* **Poisson-limit test (step 4):** the test used `rpois()` data that were
-  overdispersed by chance, so theta-hat = 88 was correct and the expected
-  warning was wrong; replaced with underdispersed data.
-* **No-zero-inflation boundary (step 6):** with an intercept-only zero
-  model, gamma -> -Inf; EM ran 1000 iterations; added boundary detection.
-* **glm.nb SE(theta) explanation:** an initial explanation of the 1e-6
-  difference was imprecise and was corrected after reading the MASS source.
-* **Step-halving rounding bug (CI on macOS):** exact comparison of
-  log-likelihoods in the step-halving safeguard caused false convergence
-  on macOS only; fixed with a rounding-aware comparison and regression
-  tests that inject rounding noise.
-* **README:** an over-strong agreement claim was corrected.
-:::
+Claude Code was used to generate all code and to draft the report. I gave it clear step by step instructions on how to implement the package as well as rules it must follow like not using optim() or other functions. After each step and then again after completion I double-checked its work. I had to make a few corrections to its work. For instance, at first the stopping rule for the IRLS was based on log-likelihood change which converged before beta coverged. This is because the likelihood is nearly flat at its peak and the NB IRLS algorithm converges only linearly. I corrected this by having the algorithm stop when beta itself stopped changing.
 
 # References
 
