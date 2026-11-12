@@ -36,6 +36,12 @@ is used:
 This package was written for the STA 651 Module 2 final project (Fall
 2026).
 
+**Website:** <https://brandonp8.github.io/nbzinbPate/>, with the
+function reference and the [project
+report](https://brandonp8.github.io/nbzinbPate/articles/report.html)
+(also available as a PDF:
+[`report/report.pdf`](https://github.com/brandonp8/nbzinbPate/blob/master/report/report.pdf)).
+
 ## Installation
 
 ``` r
