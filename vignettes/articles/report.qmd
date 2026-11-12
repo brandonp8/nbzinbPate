@@ -337,7 +337,9 @@ times slower than `zeroinfl()`. This is expected. `zeroinfl()` updates all
 parameters jointly with a quasi-Newton method (BFGS), which converges
 superlinearly, whereas EM converges linearly at a rate set by the fraction of
 missing information. The zero component is weakly identified in
-bioChemists, so EM needs `r bm$bioChemists$ZINB$iterations` iterations there,
+bioChemists (zero-part standard errors up to
+`r f2(max(subset(bm$bioChemists$ZINB$table, quantity == "Standard errors" & grepl("^zero_", parameter))$ours))`;
+see the Appendix), so EM needs `r bm$bioChemists$ZINB$iterations` iterations there,
 against `r bm$NMES1988$ZINB$iterations` for the larger NMES1988 data. In
 addition, every M-step is a fully converged weighted NB fit.
 
@@ -539,8 +541,11 @@ improves the log-likelihood by `r round(logLik(m_zinb) - logLik(m_nb), 1)`
 with `r attr(logLik(m_zinb), "df") - attr(logLik(m_nb), "df")` extra
 parameters, and has both the lowest AIC (`r sprintf("%.1f", AIC(m_zinb))` against
 `r sprintf("%.1f", AIC(m_nb))` for NB) and the lowest BIC (`r sprintf("%.1f", BIC(m_zinb))`
-against `r sprintf("%.1f", BIC(m_nb))`). Unlike the bioChemists example, where BIC
-preferred the simpler NB model, here both criteria favour zero inflation.
+against `r sprintf("%.1f", BIC(m_nb))`). Agreement of the two criteria is
+notable: BIC charges $\log n = `r f2(log(nobs(m_zinb)))`$ per parameter, against
+2 for AIC, so even under its heavier penalty for the
+`r attr(logLik(m_zinb), "df") - attr(logLik(m_nb), "df")` extra parameters the
+data favour zero inflation.
 Once the structural zeros are modelled separately, the count component is
 also less overdispersed ($\hat\theta=`r f3(m_zinb$theta)`$ in the ZINB model).
 
@@ -653,7 +658,7 @@ standard errors give close to nominal coverage. Several limitations remain.
   orthogonal in the NB2 model, this costs little, but the full observed
   information would be more exact in small samples.
 * **Weak identification.** When the zero component is weakly identified
-  (large zero-part SEs, as in bioChemists), EM needs many iterations and the
+  (large zero-part SEs, as in bioChemists; see the Appendix), EM needs many iterations and the
   Wald intervals for $\gamma$ may be somewhat too narrow, as the simulation
   hints. Profile-likelihood intervals would be more reliable there.
 * **Boundary cases.** When the data show no zero inflation, the MLE of
