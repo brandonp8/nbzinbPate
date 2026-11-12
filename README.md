@@ -33,7 +33,8 @@ is used:
   observed-data log-likelihood with respect to
   $(\beta, \gamma, \log\theta)$.
 
-This package was written for the STA 651 final project (Fall 2026).
+This package was written for the STA 651 Module 2 final project (Fall
+2026).
 
 ## Installation
 

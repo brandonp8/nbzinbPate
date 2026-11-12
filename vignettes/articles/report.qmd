@@ -1,6 +1,6 @@
 ---
 title: "Negative Binomial and Zero-Inflated Negative Binomial Regression by IRLS and EM"
-subtitle: "STA 651 Final Project: the nbzinbPate package"
+subtitle: "STA 651 Module 2 Final Project: the nbzinbPate package"
 author: "Brandon Pate"
 date: today
 format:
