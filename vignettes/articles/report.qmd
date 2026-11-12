@@ -664,7 +664,7 @@ standard errors give close to nominal coverage. Several limitations remain.
 
 # AI-use statement
 
-Claude Code was used to generate all code and to draft the report. I gave it clear step by step instructions on how to implement the package as well as rules it must follow like not using optim() or other functions. After each step and then again after completion I double-checked its work. I had to make a few corrections to its work. For instance, at first the stopping rule for the IRLS was based on log-likelihood change which converged before beta coverged. This is because the likelihood is nearly flat at its peak and the NB IRLS algorithm converges only linearly. I corrected this by having the algorithm stop when beta itself stopped changing.
+Claude Code was used to generate all code and to draft the report. I gave it clear step by step instructions on how to implement the package as well as rules it must follow like not using optim() or other functions. After each step and then again after completion I double-checked its work. I had to make a few corrections to its work. For instance, at first the stopping rule for the IRLS was based on log-likelihood change which converged before beta converged. This is because the likelihood is nearly flat at its peak and the NB IRLS algorithm converges only linearly. I corrected this by having the algorithm stop when beta itself stopped changing.
 
 # References
 
