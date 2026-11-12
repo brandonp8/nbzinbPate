@@ -23,6 +23,6 @@ Suggests:
     pscl,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
-URL: https://github.com/brandonp8/nbzinbPate
+URL: https://github.com/brandonp8/nbzinbPate, https://brandonp8.github.io/nbzinbPate/
 BugReports: https://github.com/brandonp8/nbzinbPate/issues
-Config/Needs/website: rmarkdown
+Config/Needs/website: rmarkdown, quarto

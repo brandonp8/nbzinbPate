@@ -3,14 +3,16 @@ title: "Negative Binomial and Zero-Inflated Negative Binomial Regression by IRLS
 subtitle: "STA 651 Module 2 Final Project: the nbzinbPate package"
 author: "Brandon Pate"
 date: today
+# Only HTML is declared under `format`, so that pkgdown (which runs
+# `quarto render` without --to) builds just the website version. The PDF is
+# built with `quarto render vignettes/articles/report.qmd --to pdf`, which
+# uses the top-level options below (geometry and colorlinks apply to PDF only).
 format:
   html:
     toc: true
-  pdf:
-    toc: false
-    number-sections: true
-    geometry: margin=1in
-    colorlinks: true
+number-sections: true
+geometry: margin=1in
+colorlinks: true
 execute:
   echo: false
   message: false

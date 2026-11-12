@@ -1,0 +1,41 @@
+# pkgdown configuration for the nbzinbPate website.
+# Build locally with  Rscript -e 'pkgdown::build_site()'  into docs/,
+# which GitHub Pages serves (Settings > Pages > Deploy from a branch >
+# master /docs).
+
+url: https://brandonp8.github.io/nbzinbPate/
+
+template:
+  bootstrap: 5
+
+navbar:
+  structure:
+    left: [intro, reference, articles]
+    right: [search, github]
+  components:
+    articles:
+      text: Report
+      href: articles/report.html
+
+reference:
+  - title: Model fitting
+    desc: Fit NB and ZINB regressions by IRLS, Newton-Raphson and EM.
+    contents:
+      - nbreg
+      - zinbreg
+  - title: Control settings
+    contents:
+      - nbreg_control
+      - zinbreg_control
+  - title: Methods for fitted models
+    contents:
+      - nbreg-methods
+      - zinbreg-methods
+  - title: Package
+    contents:
+      - nbzinbPate-package
+
+articles:
+  - title: Report
+    contents:
+      - articles/report   # vignettes/articles/report.qmd

@@ -1,9 +1,15 @@
 ^nbzinbPate\.Rproj$
 ^\.Rproj\.user$
 ^project-docs$
-^CLAUDE\.md$
+^\.claude$
 ^LICENSE\.md$
 ^\.github$
 ^README\.Rmd$
 ^vignettes/articles$
 ^report$
+^_pkgdown\.yml$
+^docs$
+^pkgdown$
+^vignettes/_quarto\.yaml$
+^vignettes/\.gitignore$
+^vignettes/\.quarto$
